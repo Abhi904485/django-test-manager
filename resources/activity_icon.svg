@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="98 110 316 316">
+  <!-- Beaker/Flask -->
+  <path d="M200 120 L312 120 L312 150 L280 190 L280 260 L360 380 C370 395 360 416 340 416 L172 416 C152 416 142 395 152 380 L232 260 L232 190 L200 150 Z" 
+        fill="none" 
+        stroke="currentColor" 
+        stroke-width="30" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Code Brackets -->
+  <text x="256" y="230" dominant-baseline="middle" text-anchor="middle" fill="currentColor" font-family="monospace" font-weight="bold" font-size="140">&lt; &gt;</text>
+</svg>

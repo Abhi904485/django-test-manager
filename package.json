@@ -1,0 +1,325 @@
+{
+  "name": "django-test-manager",
+  "displayName": "Django Test Manager",
+  "description": "Efficiently manage and run Django tests in VS Code",
+  "version": "0.2.1",
+  "publisher": "viseshagarwal",
+  "author": {
+    "name": "Visesh Agarwal"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/viseshagarwal/django-test-manager.git"
+  },
+  "icon": "icon.png",
+  "keywords": [
+    "django",
+    "python",
+    "test",
+    "testing",
+    "unittest",
+    "pytest",
+    "test explorer",
+    "django test runner"
+  ],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Testing",
+    "Programming Languages"
+  ],
+  "homepage": "https://github.com/viseshagarwal/django-test-manager#readme",
+  "bugs": {
+    "url": "https://github.com/viseshagarwal/django-test-manager/issues"
+  },
+  "activationEvents": [
+    "onLanguage:python",
+    "workspaceContains:manage.py"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "django-test-manager.refreshTests",
+        "title": "Refresh Django Tests",
+        "icon": "$(refresh)",
+        "tooltip": "Refresh the test list"
+      },
+      {
+        "command": "django-test-manager.runTest",
+        "title": "Run Test",
+        "icon": "$(play)",
+        "tooltip": "Run this test"
+      },
+      {
+        "command": "django-test-manager.debugTest",
+        "title": "Debug Test",
+        "icon": "$(debug-alt)",
+        "tooltip": "Debug this test"
+      },
+      {
+        "command": "django-test-manager.copyPath",
+        "title": "Copy Path",
+        "icon": "$(copy)",
+        "tooltip": "Copy dotted path to clipboard"
+      },
+      {
+        "command": "django-test-manager.runInTerminal",
+        "title": "Run in Terminal",
+        "icon": "$(terminal)",
+        "tooltip": "Run test command in terminal"
+      },
+      {
+        "command": "django-test-manager.runFailedTests",
+        "title": "Run Failed Tests",
+        "icon": "$(error)",
+        "tooltip": "Rerun only failed tests"
+      },
+      {
+        "command": "django-test-manager.runCurrentFile",
+        "title": "Run Django Tests in File",
+        "icon": "icon.svg",
+        "tooltip": "Run all tests in the current file"
+      },
+      {
+        "command": "django-test-manager.runAllTests",
+        "title": "Run All Tests",
+        "icon": "$(run-all)",
+        "tooltip": "Run all Django tests"
+      },
+      {
+        "command": "django-test-manager.expandAll",
+        "title": "Expand All",
+        "icon": "$(expand-all)",
+        "tooltip": "Expand all folders"
+      },
+      {
+        "command": "django-test-manager.collapseAll",
+        "title": "Collapse All",
+        "icon": "$(collapse-all)",
+        "tooltip": "Collapse all folders"
+      },
+      {
+        "command": "django-test-manager.configure",
+        "title": "Configure Django Tests",
+        "icon": "$(gear)",
+        "tooltip": "Configure test runner settings"
+      },
+      {
+        "command": "django-test-manager.goToSubject",
+        "title": "Go to Subject",
+        "icon": "$(go-to-file)",
+        "tooltip": "Jump to the implementation file"
+      },
+      {
+        "command": "django-test-manager.selectProfile",
+        "title": "Select Test Profile",
+        "icon": "$(list-selection)",
+        "tooltip": "Select active test profile"
+      },
+      {
+        "command": "django-test-manager.runRelatedTest",
+        "title": "Run Related Test",
+        "icon": "$(arrow-swap)",
+        "tooltip": "Run the test file corresponding to the current file"
+      },
+      {
+        "command": "django-test-manager.searchTests",
+        "title": "Search Tests",
+        "icon": "$(search)",
+        "tooltip": "Search for a test to run"
+      },
+      {
+        "command": "django-test-manager.cancelTests",
+        "title": "Cancel Tests",
+        "icon": "$(stop-circle)",
+        "tooltip": "Stop running tests"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "django-test-manager",
+          "title": "Django Tests",
+          "icon": "resources/activity_icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "django-test-manager": [
+        {
+          "id": "djangoTestExplorer",
+          "name": "Test Explorer",
+          "icon": "resources/activity_icon.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "django-test-manager.refreshTests",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@0"
+        },
+        {
+          "command": "django-test-manager.runAllTests",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "django-test-manager.configure",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@-1"
+        },
+        {
+          "command": "django-test-manager.searchTests",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@0"
+        },
+        {
+          "command": "django-test-manager.cancelTests",
+          "when": "view == djangoTestExplorer && djangoTestManager.isRunning",
+          "group": "navigation@0.5"
+        },
+        {
+          "command": "django-test-manager.runFailedTests",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "django-test-manager.collapseAll",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@4"
+        },
+        {
+          "command": "django-test-manager.selectProfile",
+          "when": "view == djangoTestExplorer",
+          "group": "navigation@5"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "django-test-manager.runTest",
+          "when": "view == djangoTestExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "django-test-manager.debugTest",
+          "when": "view == djangoTestExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "django-test-manager.runTest",
+          "when": "view == djangoTestExplorer"
+        },
+        {
+          "command": "django-test-manager.debugTest",
+          "when": "view == djangoTestExplorer"
+        },
+        {
+          "command": "django-test-manager.copyPath",
+          "when": "view == djangoTestExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "django-test-manager.copyPath",
+          "when": "view == djangoTestExplorer"
+        },
+        {
+          "command": "django-test-manager.goToSubject",
+          "when": "view == djangoTestExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "django-test-manager.goToSubject",
+          "when": "view == djangoTestExplorer"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "django-test-manager.runCurrentFile",
+          "when": "resourceLangId == python",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Django Test Manager",
+      "properties": {
+        "djangoTestManager.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to the Python interpreter (e.g. 'python', 'python3', or path to venv python)"
+        },
+        "djangoTestManager.managePyPath": {
+          "type": "string",
+          "default": "manage.py",
+          "description": "Path to manage.py file"
+        },
+        "djangoTestManager.testCommandTemplate": {
+          "type": "string",
+          "default": "${pythonPath} ${managePyPath} test ${testPath} ${testArguments}",
+          "description": "Template for the test command. Variables: ${pythonPath}, ${managePyPath}, ${testPath}, ${testArguments}"
+        },
+        "djangoTestManager.testArguments": {
+          "type": "array",
+          "default": [
+            "--keepdb",
+            "--parallel"
+          ],
+          "description": "Additional arguments to pass to the test command"
+        },
+        "djangoTestManager.environmentVariables": {
+          "type": "object",
+          "default": {},
+          "description": "Environment variables to set when running tests"
+        },
+        "djangoTestManager.testProfiles": {
+          "type": "object",
+          "default": {
+            "Default": [
+              "--keepdb",
+              "--parallel"
+            ],
+            "Fast": [
+              "--keepdb",
+              "--failfast",
+              "--parallel"
+            ],
+            "Clean": [
+              "--noinput"
+            ]
+          },
+          "description": "Define test profiles with specific arguments"
+        },
+        "djangoTestManager.activeProfile": {
+          "type": "string",
+          "default": "Default",
+          "description": "Currently active test profile"
+        },
+        "djangoTestManager.testFilePattern": {
+          "type": "string",
+          "default": "**/*test*.py",
+          "description": "Glob pattern to find test files (e.g. **/*test*.py, **/tests.py)"
+        },
+        "djangoTestManager.testMethodPattern": {
+          "type": "string",
+          "default": "test_",
+          "description": "Prefix for test methods (e.g. 'test_'). Used to identify test methods in files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^16.11.7",
+    "typescript": "^5.1.3"
+  }
+}
