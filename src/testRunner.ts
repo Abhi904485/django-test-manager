@@ -144,6 +144,7 @@ export class TestRunner {
 
     private parsingBuffer: string = '';
     private parsingTestPath: string | null = null;
+    private testStartTimes: Map<string, number> = new Map();
 
     async runInTerminal(node: TestNode): Promise<void> {
         const testPath = node.dottedPath;
@@ -358,10 +359,35 @@ export class TestRunner {
                 // Final parse to catch any remaining output
                 this.processParsingBuffer(nodeToWatch); // Keep original logic for processing remaining buffer
                 this.finalizeNodeStatus(nodeToWatch, code === 0);
+                this.printSlowTestsReport();
                 this.treeDataProvider.refresh();
                 vscode.commands.executeCommand('setContext', 'djangoTestManager.isRunning', false);
             }
         );
+    }
+
+    private printSlowTestsReport() {
+        const durations = TestStateManager.getInstance().getDurations();
+        if (durations.size === 0) {
+            return;
+        }
+
+        const sorted = Array.from(durations.entries()).sort((a, b) => b[1] - a[1]);
+        const slowTests = sorted.filter(entry => entry[1] > 100); // Filter tests faster than 0.1s? Or just top N?
+        // Let's show top 10 regardless, or if they are "slow".
+        // Let's just show top 10 slowest tests.
+
+        if (sorted.length > 0) {
+            this.outputChannel.appendLine('\n----------------------------------------------------------------------');
+            this.outputChannel.appendLine('Slowest Tests:');
+            // Take top 10
+            const top10 = sorted.slice(0, 10);
+            top10.forEach(([testPath, duration]) => {
+                const durationStr = (duration / 1000).toFixed(3) + 's';
+                this.outputChannel.appendLine(`${durationStr} ${testPath}`);
+            });
+            this.outputChannel.appendLine('----------------------------------------------------------------------');
+        }
     }
 
     private processParsingBuffer(nodeToWatch: TestNode) {
@@ -441,6 +467,7 @@ export class TestRunner {
                 } else {
                     this.parsingTestPath = `${pathInParens}.${methodName}`;
                 }
+                this.testStartTimes.set(this.parsingTestPath, Date.now());
             }
 
             // Check for result on the same line or subsequent lines
@@ -458,6 +485,12 @@ export class TestRunner {
                     shouldRefresh = true;
                     // TODO: Capture actual error message from output
                     TestStateManager.getInstance().setFailureMessage(this.parsingTestPath, 'Test Failed. Check terminal for details.');
+                }
+
+                const startTime = this.testStartTimes.get(this.parsingTestPath);
+                if (startTime) {
+                    const duration = Date.now() - startTime;
+                    TestStateManager.getInstance().setDuration(this.parsingTestPath, duration);
                 }
 
                 TestStateManager.getInstance().setStatus(this.parsingTestPath, status);
