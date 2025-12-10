@@ -15,10 +15,15 @@ export interface TestNode {
 }
 
 export class TestDiscovery {
+    private classRegex = /^class\s+(\w+)(?:\(([^)]+)\))?/;
+    private methodRegex: RegExp | undefined;
+    private methodPrefix: string | undefined;
+
     constructor(private workspaceRoot: string) { }
 
+    private fileNodes = new Map<string, TestNode>();
+
     async discover(): Promise<TestNode[]> {
-        const tests: TestNode[] = [];
         // Find all python files that might contain tests
         const config = vscode.workspace.getConfiguration('djangoTestManager');
         const filePattern = config.get<string>('testFilePattern') || '**/*test*.py';
@@ -30,17 +35,35 @@ export class TestDiscovery {
             vscode.window.showInformationMessage('No Django tests found. Make sure your test files match the pattern *test*.py');
         }
 
+        // Clear existing cache on full discover
+        this.fileNodes.clear();
+
         // Parallel processing of files
         const filePromises = files.map(file => this.parseFile(file));
         const results = await Promise.all(filePromises);
 
-        for (const fileTests of results) {
-            if (fileTests) {
-                tests.push(fileTests);
+        for (const fileNode of results) {
+            if (fileNode && fileNode.uri) {
+                this.fileNodes.set(fileNode.uri.toString(), fileNode);
             }
         }
 
-        return this.structureTests(tests);
+        return this.structureTests(Array.from(this.fileNodes.values()));
+    }
+
+    public async updateFile(uri: vscode.Uri): Promise<TestNode[]> {
+        const node = await this.parseFile(uri);
+        if (node) {
+            this.fileNodes.set(uri.toString(), node);
+        } else {
+            this.fileNodes.delete(uri.toString());
+        }
+        return this.structureTests(Array.from(this.fileNodes.values()));
+    }
+
+    public removeFile(uri: vscode.Uri): Promise<TestNode[]> {
+        this.fileNodes.delete(uri.toString());
+        return Promise.resolve(this.structureTests(Array.from(this.fileNodes.values())));
     }
 
     public async parseFile(uri: vscode.Uri): Promise<TestNode | null> {
@@ -48,13 +71,14 @@ export class TestDiscovery {
             const content = (await vscode.workspace.fs.readFile(uri)).toString();
             const lines = content.split('\n');
 
-            // Regex to capture class name and inherited class
-            const classRegex = /^class\s+(\w+)(?:\(([^)]+)\))?/;
             const config = vscode.workspace.getConfiguration('djangoTestManager');
-            const methodPrefix = config.get<string>('testMethodPattern') || 'test_';
-            // Pre-compile regex if possible, but it depends on config which might change. 
-            // Creating new RegExp is cheap enough for per-file.
-            const methodRegex = new RegExp(`^\\s+def\\s+(${methodPrefix}\\w+)`);
+            const currentPrefix = config.get<string>('testMethodPattern') || 'test_';
+
+            // Cache method regex if prefix hasn't changed
+            if (this.methodPrefix !== currentPrefix || !this.methodRegex) {
+                this.methodPrefix = currentPrefix;
+                this.methodRegex = new RegExp(`^\\s+(?:async\\s+)?def\\s+(${currentPrefix}\\w+)`);
+            }
 
             const relativePath = path.relative(this.workspaceRoot, uri.fsPath);
             const fileDottedPath = relativePath.replace(/\.py$/, '').replace(new RegExp(path.sep.replace(/\\/g, '\\\\'), 'g'), '.');
@@ -75,7 +99,7 @@ export class TestDiscovery {
                 // Optimization: check start of string before running regex
                 const trimmed = line.trimStart();
                 if (trimmed.startsWith('class ')) {
-                    const classMatch = line.match(classRegex);
+                    const classMatch = line.match(this.classRegex);
                     if (classMatch) {
                         const className = classMatch[1];
                         currentClass = {
@@ -92,8 +116,8 @@ export class TestDiscovery {
                     }
                 }
 
-                if (trimmed.startsWith('def ') && currentClass) {
-                    const methodMatch = line.match(methodRegex);
+                if ((trimmed.startsWith('def ') || trimmed.startsWith('async def ')) && currentClass) {
+                    const methodMatch = this.methodRegex ? line.match(this.methodRegex) : null;
                     if (methodMatch) {
                         const methodName = methodMatch[1];
                         currentClass.children?.push({

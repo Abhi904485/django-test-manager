@@ -37,6 +37,7 @@ export class TestStateManager {
     public clear() {
         this.statuses.clear();
         this.failureMessages.clear();
+        this.durations.clear();
         this._onDidChangeStatus.fire();
     }
 
@@ -52,5 +53,19 @@ export class TestStateManager {
 
     public getAllKeys(): string[] {
         return Array.from(this.statuses.keys());
+    }
+
+    private durations: Map<string, number> = new Map();
+
+    public setDuration(dottedPath: string, duration: number) {
+        this.durations.set(dottedPath, duration);
+    }
+
+    public getDuration(dottedPath: string): number | undefined {
+        return this.durations.get(dottedPath);
+    }
+
+    public getDurations(): Map<string, number> {
+        return this.durations;
     }
 }

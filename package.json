@@ -2,7 +2,7 @@
   "name": "django-test-manager",
   "displayName": "Django Test Manager",
   "description": "Efficiently manage and run Django tests in VS Code",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "viseshagarwal",
   "author": {
     "name": "Visesh Agarwal"
@@ -106,12 +106,6 @@
         "title": "Configure Django Tests",
         "icon": "$(gear)",
         "tooltip": "Configure test runner settings"
-      },
-      {
-        "command": "django-test-manager.goToSubject",
-        "title": "Go to Subject",
-        "icon": "$(go-to-file)",
-        "tooltip": "Jump to the implementation file"
       },
       {
         "command": "django-test-manager.selectProfile",
@@ -226,15 +220,6 @@
         {
           "command": "django-test-manager.copyPath",
           "when": "view == djangoTestExplorer"
-        },
-        {
-          "command": "django-test-manager.goToSubject",
-          "when": "view == djangoTestExplorer",
-          "group": "inline"
-        },
-        {
-          "command": "django-test-manager.goToSubject",
-          "when": "view == djangoTestExplorer"
         }
       ],
       "editor/title": [
@@ -265,11 +250,8 @@
         },
         "djangoTestManager.testArguments": {
           "type": "array",
-          "default": [
-            "--keepdb",
-            "--parallel"
-          ],
-          "description": "Additional arguments to pass to the test command"
+          "default": [],
+          "description": "Additional arguments to append to the test command"
         },
         "djangoTestManager.environmentVariables": {
           "type": "object",
