@@ -31,6 +31,20 @@ export class TestTreeDataProvider implements vscode.TreeDataProvider<TestItem> {
 		this._onDidChangeTreeData.fire();
 	}
 
+	async updateFile(uri: vscode.Uri): Promise<void> {
+		if (this.discovery && this.cachedRoots) {
+			this.cachedRoots = await this.discovery.updateFile(uri);
+			this._onDidChangeTreeData.fire();
+		}
+	}
+
+	async removeFile(uri: vscode.Uri): Promise<void> {
+		if (this.discovery && this.cachedRoots) {
+			this.cachedRoots = await this.discovery.removeFile(uri);
+			this._onDidChangeTreeData.fire();
+		}
+	}
+
 	getTreeItem(element: TestItem): vscode.TreeItem {
 		return element;
 	}
@@ -150,20 +164,24 @@ export class TestItem extends vscode.TreeItem {
 			else if (childStatus === "skipped") hasSkipped = true;
 		}
 
+		// Priority: Pending > Failed > Passed > Skipped
+
+		// If any child is pending, the node is pending (running)
+		if (hasPending) return "pending";
+
+		// If direct status is failed, it overrides everything else (e.g. setup failure)
+		if (directStatus === "failed") {
+			return "failed";
+		}
+
 		let result = "unknown";
 		if (hasFailed) result = "failed";
-		else if (hasPending) result = "pending";
 		else if (hasPassed) result = "passed";
 		else if (hasSkipped) result = "skipped";
 
 		// If aggregation is inconclusive but we have a direct status, use it
-		if ((result === "unknown" || result === "pending") && directStatus) {
+		if (result === "unknown" && directStatus) {
 			return directStatus;
-		}
-
-		// If direct status is failed, it overrides everything (e.g. setup failure)
-		if (directStatus === "failed") {
-			return "failed";
 		}
 
 		return result;
@@ -189,7 +207,20 @@ export class TestItem extends vscode.TreeItem {
 			case "pending":
 				return new vscode.ThemeIcon("sync~spin");
 			default:
-				return undefined;
+				// Structural icons when no specific status
+				switch (this.node.type) {
+					case 'class':
+						return new vscode.ThemeIcon('symbol-class');
+					case 'method':
+						return new vscode.ThemeIcon('symbol-method');
+					case 'file':
+					case 'folder':
+					case 'app':
+						// Return undefined to let VS Code use the user's active File Icon Theme
+						return undefined;
+					default:
+						return undefined;
+				}
 		}
 	}
 }

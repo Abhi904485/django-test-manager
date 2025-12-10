@@ -14,7 +14,19 @@ export class TestStatusBar {
         });
     }
 
+    private updateTimeout: NodeJS.Timeout | undefined;
+
     public update() {
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
+        }
+        this.updateTimeout = setTimeout(() => {
+            this._doUpdate();
+            this.updateTimeout = undefined;
+        }, 100);
+    }
+
+    private _doUpdate() {
         const stateManager = TestStateManager.getInstance();
         const allKeys = stateManager.getAllKeys();
 

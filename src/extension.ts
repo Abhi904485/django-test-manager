@@ -35,7 +35,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         treeView,
         vscode.commands.registerCommand('django-test-manager.refreshTests', () => testTreeDataProvider.refreshDiscovery()),
-        vscode.commands.registerCommand('django-test-manager.runTest', (item: TestItem | TestNode) => {
+        vscode.commands.registerCommand('django-test-manager.runTest', (item: TestItem | TestNode | undefined) => {
+            if (!item) {
+                vscode.commands.executeCommand('django-test-manager.runCurrentFile');
+                return;
+            }
             if (item instanceof TestItem) {
                 testRunner.runInTerminal(item.node);
             } else if ((item as TestNode).dottedPath) {
@@ -217,81 +221,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('django-test-manager.configure', () => {
             ConfigurationPanel.createOrShow(context.extensionUri);
         }),
-        vscode.commands.registerCommand('django-test-manager.goToSubject', async (item: TestItem | TestNode | vscode.Uri) => {
-            let uri: vscode.Uri | undefined;
-            if (item instanceof TestItem) {
-                uri = item.node.uri;
-            } else if ((item as TestNode).uri) {
-                uri = (item as TestNode).uri;
-            } else if (item instanceof vscode.Uri) {
-                uri = item;
-            } else {
-                // Try active editor
-                uri = vscode.window.activeTextEditor?.document.uri;
-            }
 
-            if (!uri) {
-                vscode.window.showErrorMessage('Cannot determine context for Go to Subject.');
-                return;
-            }
-
-            // Heuristic: try to find the subject file
-            // 1. test_foo.py -> foo.py
-            // 2. foo_test.py -> foo.py
-            // 3. tests/test_foo.py -> foo.py (in parent)
-            // 4. app/tests/test_foo.py -> app/foo.py
-
-            const fileName = path.basename(uri.fsPath);
-            const dirName = path.dirname(uri.fsPath);
-
-            let subjectName = '';
-            if (fileName.startsWith('test_')) {
-                subjectName = fileName.substring(5);
-            } else if (fileName.endsWith('_test.py')) {
-                subjectName = fileName.replace('_test.py', '.py');
-            } else {
-                vscode.window.showErrorMessage('Current file does not look like a test file (must start with test_ or end with _test.py).');
-                return;
-            }
-
-            // Search in current dir and up to 3 levels up
-            const candidates = [
-                path.join(dirName, subjectName),
-                path.join(path.dirname(dirName), subjectName),
-                path.join(path.dirname(path.dirname(dirName)), subjectName),
-                path.join(path.dirname(path.dirname(path.dirname(dirName))), subjectName)
-            ];
-
-            // Also try to find it via workspace search if simple path resolution fails
-            // This is much more robust for Django apps structure
-            const files = await vscode.workspace.findFiles(`**/${subjectName}`, '**/node_modules/**', 10);
-            if (files.length > 0) {
-                // Prefer the one that shares the longest common path prefix with the test file
-                // or just pick the first one if unsure
-                // Let's sort by proximity
-                files.sort((a, b) => {
-                    const relA = path.relative(dirName, a.fsPath);
-                    const relB = path.relative(dirName, b.fsPath);
-                    return relA.length - relB.length;
-                });
-
-                await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(files[0]));
-                return;
-            }
-
-            for (const candidate of candidates) {
-                try {
-                    await vscode.workspace.fs.stat(vscode.Uri.file(candidate));
-                    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(candidate));
-                    await vscode.window.showTextDocument(doc);
-                    return;
-                } catch {
-                    // Continue
-                }
-            }
-
-            vscode.window.showErrorMessage(`Could not find subject file ${subjectName} in workspace.`);
-        }),
         vscode.commands.registerCommand('django-test-manager.runRelatedTest', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor || editor.document.languageId !== 'python') {
@@ -439,7 +369,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
-            { language: 'python', scheme: 'file' },
+            [
+                { language: 'python', scheme: 'file' },
+                { language: 'python', scheme: 'untitled' }
+            ],
             new DjangoTestCodeLensProvider(workspaceRoot)
         )
     );
@@ -472,24 +405,25 @@ export function activate(context: vscode.ExtensionContext) {
     // Initial update
     updateDecorations(vscode.window.activeTextEditor);
 
-    // Auto-discover tests on file changes
+    // Auto-discover tests on file changes with debounce
     const watcher = vscode.workspace.createFileSystemWatcher('**/*test*.py');
-    let refreshTimeout: NodeJS.Timeout | undefined;
-    const triggerRefresh = () => {
-        if (refreshTimeout) {
-            clearTimeout(refreshTimeout);
-        }
-        refreshTimeout = setTimeout(() => {
-            testTreeDataProvider.refreshDiscovery();
-            refreshTimeout = undefined;
-        }, 5000); // Debounce for 5 second
-    };
+    const debouncedUpdate = debounce((uri: vscode.Uri) => testTreeDataProvider.updateFile(uri), 500);
 
-    watcher.onDidCreate(triggerRefresh);
-    watcher.onDidChange(triggerRefresh);
-    watcher.onDidDelete(triggerRefresh);
+    watcher.onDidCreate((uri) => debouncedUpdate(uri));
+    watcher.onDidChange((uri) => debouncedUpdate(uri));
+    watcher.onDidDelete((uri) => testTreeDataProvider.removeFile(uri));
 
     context.subscriptions.push(watcher);
+}
+
+function debounce<T extends (...args: any[]) => void>(func: T, wait: number): (...args: Parameters<T>) => void {
+    let timeout: NodeJS.Timeout | undefined;
+    return (...args: Parameters<T>) => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            func(...args);
+        }, wait);
+    };
 }
 
 export function deactivate() { }

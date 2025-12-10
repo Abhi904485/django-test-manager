@@ -1,86 +1,113 @@
-<p align="center">
+<div align="center">
   <img src="https://raw.githubusercontent.com/viseshagarwal/django-test-manager/main/icon.png" alt="Django Test Manager Logo" width="128" height="128" />
-</p>
+  <h1>Django Test Manager</h1>
+  <p>
+    <b>The ultimate tool for managing, running, and debugging Django tests in VS Code.</b>
+  </p>
+  <p>
+    <a href="https://github.com/viseshagarwal/django-test-manager/issues">Report Bug</a>
+    ·
+    <a href="https://github.com/viseshagarwal/django-test-manager/discussions">Request Feature</a>
+  </p>
+</div>
 
-# Django Test Manager
+---
 
-**The ultimate tool for managing, running, and debugging Django tests in your favorite editor.**
+**Django Test Manager** brings a powerful, native-feeling test runner to your Django workflow. Discover, organize, search, run, and debug your tests with zero configuration required.
 
-Django Test Manager provides a powerful, native-feeling interface for your Django test suite. Discover, organize, search, run, and debug your tests with zero configuration required.
+## ✨ Key Features
 
-## ✨ Features
+*   **🔍 Smart Discovery**: Automatically detects tests, including **Async Tests** (`async def`). View your suite hierarchically by app, file, class, and method.
+*   **⚡ Fast Execution**: Optimized runner with **native tree icons** and reduced overhead.
+*   **▶️ One-Click Run**: execute individual methods, classes, files, or the entire suite instantly.
+*   **🐞 Zero-Config Debugging**: Click the debug icon next to any test to start a session. We handle `launch.json` for you.
+*   **🔎 Instant Search**: integrated "Search Tests" command to jump to any test in your large codebase.
+*   **⚙️ Test Profiles**: Switch between different run configurations (e.g., `Fast` with `--failfast`, `CI` with `--keepdb`) on the fly.
+*   **📦 Native Experience**: Uses VS Code's native file icons and themes for a seamless look.
+*   **📝 CodeLens**: "Run" and "Debug" shortcuts appear directly in your Python files—even in **Untitled** buffers or **Git Diffs**!
 
-*   **🔍 Smart Test Discovery**: Automatically finds tests in your project using configurable patterns. Supports hierarchical view of apps, files, classes, and methods.
-*   **▶️ One-Click Execution**: Run individual tests, classes, files, or your entire suite directly from the Test Explorer or Editor.
-*   **🐞 Zero-Config Debugging**: Instantly debug any test without messing with `launch.json`. Just click the debug icon, and we handle the rest.
-*   **🔎 Instant Search**: Quickly find and jump to any test in your project with the built-in search command.
-*   **⚡ Fast & Responsive**: Built for performance. Includes "Cancel" functionality to stop long-running suites instantly.
-*   **📝 CodeLens Integration**: "Run" and "Debug" buttons appear directly above your test methods in the editor.
-*   **⚙️ Beautiful Configuration**: A dedicated, clean UI for configuring your Python path, `manage.py` location, test patterns, and environment variables.
-*   **🔄 Smart Re-runs**: Easily re-run only the tests that failed in the last session.
-*   **🎨 Visual Feedback**: Clear status icons (Pass/Fail/Skip) in the explorer, editor gutter, and status bar.
+## 📦 Installation
+
+**Via VS Code Marketplace:**
+1. Open **VS Code**.
+2. Go to the **Extensions** view (`Cmd+Shift+X` or `Ctrl+Shift+X`).
+3. Search for `Django Test Manager`.
+4. Click **Install**.
+
+**Via VSIX (Manual):**
+1. Download the latest `.vsix` release from the GitHub releases page.
+2. In VS Code, run the command `Extensions: Install from VSIX...`.
+3. Select the downloaded file.
 
 ## 🚀 Getting Started
 
-1.  Open your Django project in VS Code.
-2.  The extension will automatically discover your tests. Look for the **Django Tests** icon in the Activity Bar.
-3.  Click the **Play** (▶) icon next to any test to run it.
-4.  Click the **Debug** (🐞) icon to start a debugging session.
+1.  Open any folder containing a **Django Project** (must have a `manage.py`).
+2.  The extension accepts your Python environment automatically (including `venv`, `.env`, etc.).
+3.  Click the **Django Tests** icon in the Activity Bar to view your test tree.
+4.  **Run** any test by clicking the `▶` Play button.
 
 ## 🛠️ Configuration
 
-Click the **Gear** (⚙️) icon in the Test Explorer title bar to open the configuration panel.
+Configure the extension via the **Settings (Gear Icon)** or `settings.json`:
 
-### Available Settings
-
-*   **Environment**:
-    *   `Python Path`: Path to your Python interpreter (auto-detects virtual environments).
-    *   `Manage.py Path`: Relative path to your `manage.py` file.
-    *   `Environment Variables`: Key-value pairs to set during test runs.
-
-*   **Discovery**:
-    *   `Test File Pattern`: Glob pattern to find test files (default: `**/*test*.py`).
-    *   `Test Method Pattern`: Prefix for test methods (default: `test_`).
-
-*   **Execution**:
-    *   `Test Arguments`: Global arguments passed to every test run (e.g., `--keepdb`, `--failfast`).
-    *   `Command Template`: Customize the exact command used to invoke tests.
+| Setting | Default | Description |
+| :--- | :--- | :--- |
+| `pythonPath` | `python3` | Path to your Python interpreter (auto-detects venv). |
+| `managePyPath` | `manage.py` | Relative path to `manage.py`. |
+| `testFilePattern` | `**/*test*.py` | Glob pattern for finding test files. |
+| `testMethodPattern` | `test_` | Prefix for identifying test methods. |
+| `activeProfile` | `Default` | Currently active test argument profile. |
 
 ## ⌨️ Commands
 
-*   `Django Test Manager: Search Tests`: Open the quick pick menu to search and run tests.
-*   `Django Test Manager: Run Failed Tests`: Re-run tests that failed in the previous run.
-*   `Django Test Manager: Cancel Tests`: Stop the currently running test process.
-*   `Django Test Manager: Configure`: Open the configuration panel.
-
-## Release Notes
-
-### 0.2.1
-*   **Improved**: Improved the test execution.
-
-### 0.2.0
-
-*   **New**: Configuration Page! A dedicated UI to manage your settings.
-*   **New**: "Search Tests" command to quickly find and run tests.
-*   **New**: "Cancel Tests" button to stop running tests.
-*   **Improved**: Test result parsing now correctly handles partial failures (no more "All Failed" false alarms).
-*   **Improved**: Configurable test file and method patterns.
-*   **Fixed**: Various bug fixes and performance improvements.
-
-### 0.1.0
-
-*   Initial release.
-
-## 📋 Requirements
-
-*   VS Code 1.80.0 or higher.
-*   A Django project with a `manage.py` file.
-*   Python installed.
+| Command | Description |
+| :--- | :--- |
+| `Django Test Manager: Search Tests` | Quick-pick menu to find and run any test. |
+| `Django Test Manager: Run Failed Tests` | Smart re-run of only the tests that failed. |
+| `Django Test Manager: Cancel Tests` | Instantly stop the current test run. |
+| `Django Test Manager: Select Profile` | Switch between `Default`, `Fast`, `Clean`, etc. |
 
 ## 🤝 Contributing
 
-Found a bug or have a feature request? Please open an issue on our [GitHub repository](https://github.com/viseshagarwal/django-test-manager).
+We love contributions! Here is how you can set up the project locally:
 
-## 📄 License
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/viseshagarwal/django-test-manager.git
+    cd django-test-manager
+    ```
 
-MIT
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Run the Extension**:
+    *   Open the folder in **VS Code**.
+    *   Press `F5` to start debugging.
+    *   This will open a new VS Code window (Extension Host) with the extension loaded.
+
+4.  **Submit a Pull Request**:
+    *   Make your changes.
+    *   Run `npm run compile` to ensure everything builds.
+    *   Push your changes and open a PR on GitHub.
+
+## 📦 Release Notes
+
+### 0.2.2
+*   **New**: Added full support for **Async Tests** (`async def`).
+*   **New**: Improved status bar performance with smart debouncing (no more crashes on large suites!).
+*   **New**: Added **Test Profiles** support.
+*   **Improved**: Tree view now respects your **Active File Icon Theme**.
+*   **Improved**: CodeLenses now appear in **new/untitled files** and **Git Diff** views.
+*   **Fixed**: Resolved issues with large output buffers causing extension freeze.
+
+### 0.2.0 - 0.2.1
+*   Added Configuration Panel and Search.
+*   Improved argument handling and performance.
+
+---
+
+<div align="center">
+  <p>Made with ❤️ for the Django Community</p>
+</div>

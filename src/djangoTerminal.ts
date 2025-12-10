@@ -29,6 +29,7 @@ export class DjangoTerminal implements vscode.Pseudoterminal {
 
     public runCommand(
         cmd: string,
+        args: string[],
         cwd: string,
         env: NodeJS.ProcessEnv,
         onData: (data: string) => void,
@@ -41,12 +42,14 @@ export class DjangoTerminal implements vscode.Pseudoterminal {
             this.writeEmitter.fire('\r\n--- Starting Test Run ---\r\n');
         }
 
-        this.writeEmitter.fire(`Running: ${cmd}\r\n\r\n`);
+        // Display the full command for user visibility
+        const fullCmd = `${cmd} ${args.join(' ')}`;
+        this.writeEmitter.fire(`Running: ${fullCmd}\r\n\r\n`);
 
-        this.process = cp.spawn(cmd, {
+        this.process = cp.spawn(cmd, args, {
             cwd: cwd,
             env: env,
-            shell: true
+            shell: false
         });
 
         const filterOutput = (data: string): string => {

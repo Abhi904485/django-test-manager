@@ -41,37 +41,13 @@ export class TestRunner {
         this.outputChannel.clear();
         this.outputChannel.show();
 
+        const { cmd, args } = this.buildTestCommandParts(testPath);
+
+        // Build display command string responsibly
+        const fullCmd = `${cmd} ${args.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`;
+        this.outputChannel.appendLine(`Running: ${fullCmd}`);
+
         const config = vscode.workspace.getConfiguration("djangoTestManager");
-        let pythonPath = config.get<string>("pythonPath") || "python3";
-        const managePyPath = config.get<string>("managePyPath") || "manage.py";
-
-        // Auto-detect venv if pythonPath is default
-        if (pythonPath === "python3" || pythonPath === "python") {
-            const venvPath = path.join(this.workspaceRoot, ".venv", "bin", "python");
-            const venvPath2 = path.join(this.workspaceRoot, "venv", "bin", "python");
-            const fs = require("fs");
-            if (fs.existsSync(venvPath)) {
-                pythonPath = venvPath;
-            } else if (fs.existsSync(venvPath2)) {
-                pythonPath = venvPath2;
-            }
-        }
-
-        const testArgs = config.get<string[]>("testArguments") || [];
-        const argsString = testArgs.join(" ");
-
-        const commandTemplate =
-            config.get<string>("testCommandTemplate") ||
-            "${pythonPath} ${managePyPath} test ${testPath} ${testArguments}";
-
-        const cmd = commandTemplate
-            .replace("${pythonPath}", pythonPath)
-            .replace("${managePyPath}", managePyPath)
-            .replace("${testPath}", testPath)
-            .replace("${testArguments}", argsString);
-
-        this.outputChannel.appendLine(`Running: ${cmd}`);
-
         const configEnv =
             config.get<{ [key: string]: string }>("environmentVariables") || {};
         const env = {
@@ -87,35 +63,51 @@ export class TestRunner {
             },
             (progress, token) => {
                 return new Promise<void>((resolve) => {
-                    const child = cp.exec(
+                    const child = cp.spawn(
                         cmd,
+                        args,
                         {
                             cwd: this.workspaceRoot,
                             env: env,
-                            maxBuffer: 1024 * 1024 * 10,
-                        },
-                        (error, stdout, stderr) => {
-                            if (token.isCancellationRequested) {
-                                resolve();
-                                return;
-                            }
-
-                            this.outputChannel.append(stdout);
-                            this.outputChannel.append(stderr);
-
-                            if (error) {
-                                this.outputChannel.appendLine(
-                                    `\nProcess exited with code: ${error.code}`
-                                );
-                            }
-
-                            this.parseResults(node, stdout + stderr);
-                            resolve();
+                            shell: false
                         }
                     );
 
+                    let buffer = "";
+
+                    child.stdout.on('data', (data) => {
+                        const str = data.toString();
+                        this.outputChannel.append(str);
+                        if (buffer.length < 1024 * 1024) { // Cap memory buffer at 1MB
+                            buffer += str;
+                        }
+                    });
+
+                    child.stderr.on('data', (data) => {
+                        const str = data.toString();
+                        this.outputChannel.append(str);
+                        if (buffer.length < 1024 * 1024) { // Cap memory buffer at 1MB
+                            buffer += str;
+                        }
+                    });
+
+                    child.on('error', (err) => {
+                        this.outputChannel.appendLine(`\nError: ${err.message}`);
+                    });
+
+                    child.on('close', (code) => {
+                        if (code !== 0) {
+                            this.outputChannel.appendLine(
+                                `\nProcess exited with code: ${code}`
+                            );
+                        }
+                        this.parseResults(node, buffer);
+                        resolve();
+                    });
+
                     token.onCancellationRequested(() => {
                         child.kill();
+                        resolve();
                     });
                 });
             }
@@ -213,8 +205,8 @@ export class TestRunner {
 
         this.treeDataProvider.refresh();
 
-        const cmd = this.buildTestCommand(testPath);
-        await this.executeCommandInTerminal(cmd, effectiveNode);
+        const { cmd, args } = this.buildTestCommandParts(testPath);
+        await this.executeCommandInTerminal(cmd, args, effectiveNode);
     }
 
     async runFailedTests(): Promise<void> {
@@ -235,7 +227,7 @@ export class TestRunner {
         this.treeDataProvider.refresh();
 
         const testPaths = failedTests.join(" ");
-        const cmd = this.buildTestCommand(testPaths);
+        const { cmd, args } = this.buildTestCommandParts(testPaths);
 
         // Create a dummy node for the watcher
         const effectiveNode: TestNode = {
@@ -245,10 +237,10 @@ export class TestRunner {
             children: [], // We don't have a tree structure for arbitrary list of failed tests easily
         };
 
-        await this.executeCommandInTerminal(cmd, effectiveNode);
+        await this.executeCommandInTerminal(cmd, args, effectiveNode);
     }
 
-    private buildTestCommand(testPaths: string): string {
+    private buildTestCommandParts(testPaths: string): { cmd: string, args: string[] } {
         const config = vscode.workspace.getConfiguration("djangoTestManager");
         let pythonPath = config.get<string>("pythonPath") || "python3";
         const managePyPath = config.get<string>("managePyPath") || "manage.py";
@@ -271,14 +263,10 @@ export class TestRunner {
         // Get arguments from the new configuration page (string array)
         const configArgs = config.get<string[]>("testArguments") || [];
 
-        // Combine profile args (if any legacy ones exist) with config args
-        // Prioritize config args as they are what the user sees in the UI
-        let rawTestArgs: string[] = [];
-        if (configArgs.length > 0) {
-            rawTestArgs = configArgs;
-        } else {
-            rawTestArgs = profiles[activeProfile] || [];
-        }
+        // Combine profile args with config args (append config args to profile args)
+        const profileArgs = profiles[activeProfile] || [];
+        const extraArgs = config.get<string[]>("testArguments") || [];
+        const rawTestArgs = [...profileArgs, ...extraArgs];
 
         const testArgs: string[] = [];
         for (let i = 0; i < rawTestArgs.length; i++) {
@@ -295,17 +283,45 @@ export class TestRunner {
         if (!testArgs.includes("--noinput") && !testArgs.includes("--no-input")) {
             testArgs.push("--noinput");
         }
-        const argsString = testArgs.join(" ");
 
         const commandTemplate =
             config.get<string>("testCommandTemplate") ||
             "${pythonPath} ${managePyPath} test ${testPath} ${testArguments}";
 
-        return commandTemplate
-            .replace("${pythonPath}", pythonPath)
-            .replace("${managePyPath}", managePyPath)
-            .replace("${testPath}", testPaths)
-            .replace("${testArguments}", argsString);
+        // Tokenize by splitting on spaces
+        const tokens = commandTemplate.split(' ');
+        const finalArgs: string[] = [];
+
+        tokens.forEach(token => {
+            if (token === '${pythonPath}') {
+                finalArgs.push(pythonPath);
+            } else if (token === '${managePyPath}') {
+                finalArgs.push(managePyPath);
+            } else if (token === '${testPath}') {
+                // If testPaths contains spaces (multiple tests), we might need to split it if it came from a join...
+                // But generally testPaths is "path1 path2", so let's stick to simple split for now or pass as single arg if it is one path.
+                // However, testPaths variable here is a space-joined string from failed tests or a single path.
+                // Security-wise: this is data from *our* extension (dotted paths), not user input.
+                // But better to treat it as a list properly.
+                // For now, let's assume it space separated.
+                if (testPaths.trim().length > 0) {
+                    finalArgs.push(...testPaths.split(' '));
+                }
+            } else if (token === '${testArguments}') {
+                finalArgs.push(...testArgs);
+            } else if (token.trim().length > 0) {
+                finalArgs.push(token);
+            }
+        });
+
+        if (finalArgs.length === 0) {
+            return { cmd: 'echo', args: ['Error: Empty command'] };
+        }
+
+        const cmd = finalArgs[0];
+        const args = finalArgs.slice(1);
+
+        return { cmd, args };
     }
 
     private parsingInterval: NodeJS.Timeout | undefined;
@@ -341,7 +357,7 @@ export class TestRunner {
         }
     }
 
-    private async executeCommandInTerminal(cmd: string, nodeToWatch: TestNode) {
+    private async executeCommandInTerminal(cmd: string, args: string[], nodeToWatch: TestNode) {
         vscode.commands.executeCommand(
             "setContext",
             "djangoTestManager.isRunning",
@@ -378,9 +394,10 @@ export class TestRunner {
 
         this.djangoTerminal.runCommand(
             cmd,
+            args,
             this.workspaceRoot,
             { ...process.env, ...configEnv },
-            (data) => {
+            (data: string) => {
                 // Just accumulate data, don't parse immediately
                 this.parsingBuffer += data;
             },

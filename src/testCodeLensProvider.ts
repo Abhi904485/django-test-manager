@@ -19,7 +19,7 @@ export class DjangoTestCodeLensProvider implements vscode.CodeLensProvider {
 
         const config = vscode.workspace.getConfiguration('djangoTestManager');
         const methodPrefix = config.get<string>('testMethodPattern') || 'test_';
-        const methodRegex = new RegExp(`^\\s+def\\s+(${methodPrefix}\\w+)`);
+        const methodRegex = new RegExp(`^\\s+(?:async\\s+)?def\\s+(${methodPrefix}\\w+)`);
 
         let currentClassName: string | null = null;
 
