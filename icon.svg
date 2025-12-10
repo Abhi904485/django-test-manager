@@ -2,25 +2,35 @@
   <defs>
     <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#0C4B33;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#092E20;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#052016;stop-opacity:1" />
     </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="15" result="coloredBlur"/>
+    </filter>
   </defs>
   
   <!-- Background -->
   <rect width="512" height="512" rx="100" fill="url(#grad1)" />
   
-  <!-- Beaker/Flask -->
-  <path d="M200 120 L312 120 L312 150 L280 190 L280 260 L360 380 C370 395 360 416 340 416 L172 416 C152 416 142 395 152 380 L232 260 L232 190 L200 150 Z" 
-        fill="none" 
-        stroke="white" 
-        stroke-width="24" 
-        stroke-linecap="round" 
-        stroke-linejoin="round"/>
-        
-  <!-- Liquid inside -->
-  <path d="M240 300 L272 300 L320 370 L192 370 Z" fill="#44B78B" opacity="0.8" />
-  
-  <!-- Code Brackets inside/overlaid -->
-  <!-- Code Brackets inside/overlaid -->
-  <text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="monospace" font-weight="bold" font-size="140">&lt; &gt;</text>
+  <g transform="translate(256 268) scale(1.25) translate(-256 -268)">
+    <!-- Internal Glow (Active Tests) -->
+    <circle cx="256" cy="350" r="70" fill="#44B78B" opacity="0.25" filter="url(#glow)" />
+    
+    <!-- Rising Bubbles (Test Results/Activity) -->
+    <circle cx="256" cy="360" r="14" fill="#44B78B" opacity="0.8" />
+    <circle cx="225" cy="320" r="9" fill="#44B78B" opacity="0.6" />
+    <circle cx="285" cy="330" r="11" fill="#44B78B" opacity="0.6" />
+    <circle cx="265" cy="290" r="6" fill="#44B78B" opacity="0.4" />
+
+    <!-- Beaker/Flask -->
+    <path d="M200 120 L312 120 L312 150 L280 190 L280 260 L360 380 C370 395 360 416 340 416 L172 416 C152 416 142 395 152 380 L232 260 L232 190 L200 150 Z" 
+          fill="none" 
+          stroke="white" 
+          stroke-width="24" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+          
+    <!-- Code Brackets inside/overlaid -->
+    <text x="256" y="230" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="monospace" font-weight="bold" font-size="140">&lt; &gt;</text>
+  </g>
 </svg>
