@@ -2,12 +2,18 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TestTreeDataProvider, TestItem } from './testTree';
 import { TestRunner } from './testRunner';
-import { DjangoTestCodeLensProvider } from './testCodeLensProvider';
+import { DjangoTestCodeLensProvider, initCodeLensCache } from './testCodeLensProvider';
 import { TestNode, TestDiscovery } from './testDiscovery';
 import { ConfigurationPanel } from './configurationPanel';
 import { TestDecorationProvider } from './testDecorations';
 import { TestStatusBar } from './testStatusBar';
 import { TestStateManager } from './testStateManager';
+import { CoverageProvider } from './coverageProvider';
+import { initTestUtilsCache } from './testUtils';
+import { WatchModeManager } from './watchMode';
+import { TestHistoryManager, TestHistoryTreeProvider } from './testHistory';
+import { isTestClassFromLine } from './testUtils';
+import { NativeTestController } from './nativeTestController';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Django Test Manager is now active!');
@@ -18,6 +24,10 @@ export function activate(context: vscode.ExtensionContext) {
         return;
     }
 
+    // Initialize performance caches
+    context.subscriptions.push(initTestUtilsCache());
+    initCodeLensCache(context);
+
     const testDiscovery = new TestDiscovery(workspaceRoot);
     const testTreeDataProvider = new TestTreeDataProvider(workspaceRoot, testDiscovery);
 
@@ -26,11 +36,29 @@ export function activate(context: vscode.ExtensionContext) {
         treeDataProvider: testTreeDataProvider
     });
 
-    const testRunner = new TestRunner(workspaceRoot, testTreeDataProvider);
-
     // Status Bar
     const statusBar = new TestStatusBar();
     context.subscriptions.push(statusBar);
+
+    const coverageProvider = new CoverageProvider(workspaceRoot);
+    // Load existing coverage if available
+    coverageProvider.loadCoverage();
+    const testRunner = new TestRunner(workspaceRoot, testTreeDataProvider, coverageProvider);
+
+    // Initialize Watch Mode
+    const watchModeManager = new WatchModeManager(workspaceRoot, testRunner);
+    context.subscriptions.push({ dispose: () => watchModeManager.dispose() });
+
+    // Initialize Test History
+    const testHistoryManager = TestHistoryManager.getInstance(context);
+    const testHistoryTreeProvider = new TestHistoryTreeProvider(testHistoryManager);
+
+    // Initialize VS Code Native Test Controller (integrates with built-in Test Explorer)
+    const nativeTestController = new NativeTestController(workspaceRoot, testDiscovery);
+    context.subscriptions.push({ dispose: () => nativeTestController.dispose() });
+
+    // Discover tests for native controller
+    nativeTestController.discoverAllTests();
 
     context.subscriptions.push(
         treeView,
@@ -342,6 +370,28 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             }
         }),
+        vscode.commands.registerCommand('django-test-manager.viewDiff', async (item: TestItem | TestNode) => {
+            const node = item instanceof TestItem ? item.node : item;
+            if (!node || !node.dottedPath) return;
+
+            const diff = TestStateManager.getInstance().getDiff(node.dottedPath);
+            if (!diff) {
+                vscode.window.showInformationMessage('No diff available for this test.');
+                return;
+            }
+
+            try {
+                const doc1 = await vscode.workspace.openTextDocument({ content: diff.expected, language: 'python' });
+                const doc2 = await vscode.workspace.openTextDocument({ content: diff.actual, language: 'python' });
+
+                // Add a title to describe the diff
+                const title = `Expected vs Actual (${node.name})`;
+
+                await vscode.commands.executeCommand('vscode.diff', doc1.uri, doc2.uri, title);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to open diff: ${e}`);
+            }
+        }),
         vscode.commands.registerCommand('django-test-manager.cancelTests', () => {
             testRunner.cancel();
         }),
@@ -363,6 +413,53 @@ export function activate(context: vscode.ExtensionContext) {
             if (selected) {
                 await config.update('activeProfile', selected.label, vscode.ConfigurationTarget.Global);
                 vscode.window.showInformationMessage(`Active Test Profile set to: ${selected.label}`);
+            }
+        }),
+
+        // Watch Mode commands
+        vscode.commands.registerCommand('django-test-manager.toggleWatchMode', () => {
+            watchModeManager.toggle();
+        }),
+
+        // Test History commands
+        vscode.commands.registerCommand('django-test-manager.viewTestHistory', async () => {
+            const summary = testHistoryManager.getSummary();
+            const slowestTests = testHistoryManager.getSlowestTests(5);
+            const mostFailing = testHistoryManager.getMostFailingTests(5);
+
+            const panel = vscode.window.createWebviewPanel(
+                'testHistory',
+                'Test History',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            panel.webview.html = generateTestHistoryHtml(summary, slowestTests, mostFailing);
+        }),
+
+        vscode.commands.registerCommand('django-test-manager.clearTestHistory', () => {
+            testHistoryManager.clearHistory();
+            vscode.window.showInformationMessage('Test history cleared.');
+        }),
+
+        vscode.commands.registerCommand('django-test-manager.exportTestHistory', async () => {
+            const json = testHistoryManager.exportToJson();
+            const doc = await vscode.workspace.openTextDocument({ content: json, language: 'json' });
+            await vscode.window.showTextDocument(doc);
+        }),
+
+        // Run/Debug Test at Cursor
+        vscode.commands.registerCommand('django-test-manager.runTestAtCursor', async () => {
+            const testAtCursor = await getTestAtCursor(workspaceRoot);
+            if (testAtCursor) {
+                await testRunner.runInTerminal(testAtCursor);
+            }
+        }),
+
+        vscode.commands.registerCommand('django-test-manager.debugTestAtCursor', async () => {
+            const testAtCursor = await getTestAtCursor(workspaceRoot);
+            if (testAtCursor) {
+                vscode.commands.executeCommand('django-test-manager.debugTest', testAtCursor);
             }
         })
     );
@@ -394,13 +491,18 @@ export function activate(context: vscode.ExtensionContext) {
         }
     };
 
-    // Update on active editor change
-    vscode.window.onDidChangeActiveTextEditor(updateDecorations, null, context.subscriptions);
-
     // Update when tests finish (listen to tree data provider refresh)
     testTreeDataProvider.onDidChangeTreeData(() => {
         updateDecorations(vscode.window.activeTextEditor);
+        coverageProvider.updateDecorations(vscode.window.activeTextEditor!);
     });
+
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor) {
+            updateDecorations(editor);
+            coverageProvider.updateDecorations(editor);
+        }
+    }, null, context.subscriptions);
 
     // Initial update
     updateDecorations(vscode.window.activeTextEditor);
@@ -426,4 +528,275 @@ function debounce<T extends (...args: any[]) => void>(func: T, wait: number): (.
     };
 }
 
+/**
+ * Get the test at the current cursor position
+ */
+async function getTestAtCursor(workspaceRoot: string): Promise<TestNode | null> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== 'python') {
+        vscode.window.showErrorMessage('No active Python file found.');
+        return null;
+    }
+
+    const document = editor.document;
+    const position = editor.selection.active;
+    const text = document.getText();
+    const lines = text.split('\n');
+
+    // Calculate file dotted path
+    const relativePath = vscode.workspace.asRelativePath(document.uri);
+    const fileDottedPath = relativePath.replace(/\.py$/, '').replace(/\//g, '.').replace(/\\/g, '.');
+
+    const config = vscode.workspace.getConfiguration('djangoTestManager');
+    const methodPrefix = config.get<string>('testMethodPattern') || 'test_';
+
+    const classRegex = /^class\s+(\w+)/;
+    const methodRegex = new RegExp(`^\\s+(?:async\\s+)?def\\s+(${methodPrefix}\\w+)`);
+
+    let currentClassName: string | null = null;
+    let currentClassLine = -1;
+    let foundMethod: string | null = null;
+    let foundMethodLine = -1;
+
+    // Find the class and method containing the cursor
+    for (let i = 0; i <= position.line; i++) {
+        const line = lines[i];
+
+        const classMatch = line.match(classRegex);
+        if (classMatch) {
+            // Check if this is a test class
+            if (isTestClassFromLine(classMatch[1], line)) {
+                currentClassName = classMatch[1];
+                currentClassLine = i;
+                foundMethod = null; // Reset method when entering a new class
+                foundMethodLine = -1;
+            } else {
+                currentClassName = null;
+                currentClassLine = -1;
+            }
+        }
+
+        const methodMatch = line.match(methodRegex);
+        if (methodMatch && currentClassName) {
+            foundMethod = methodMatch[1];
+            foundMethodLine = i;
+        }
+    }
+
+    // Determine what to run based on cursor position
+    if (foundMethod && currentClassName && foundMethodLine >= 0) {
+        // Cursor is on or after a test method
+        const methodDottedPath = `${fileDottedPath}.${currentClassName}.${foundMethod}`;
+        return {
+            name: foundMethod,
+            type: 'method',
+            dottedPath: methodDottedPath,
+            uri: document.uri,
+            range: new vscode.Range(foundMethodLine, 0, foundMethodLine, lines[foundMethodLine].length)
+        };
+    } else if (currentClassName && currentClassLine >= 0) {
+        // Cursor is on or after a test class but before any method
+        const classDottedPath = `${fileDottedPath}.${currentClassName}`;
+        return {
+            name: currentClassName,
+            type: 'class',
+            dottedPath: classDottedPath,
+            uri: document.uri,
+            range: new vscode.Range(currentClassLine, 0, currentClassLine, lines[currentClassLine].length)
+        };
+    }
+
+    vscode.window.showErrorMessage('No test found at cursor position.');
+    return null;
+}
+
+/**
+ * Generate HTML for test history panel
+ */
+function generateTestHistoryHtml(
+    summary: {
+        totalSessions: number;
+        totalTests: number;
+        totalPassed: number;
+        totalFailed: number;
+        totalSkipped: number;
+        avgSessionDuration: number;
+        avgTestDuration: number;
+    },
+    slowestTests: Array<{ dottedPath: string; duration: number }>,
+    mostFailing: Array<{ dottedPath: string; failureRate: number; totalRuns: number }>
+): string {
+    const formatDuration = (ms: number): string => {
+        if (ms < 1000) return `${Math.round(ms)}ms`;
+        if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+        return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+    };
+
+    const passRate = summary.totalTests > 0
+        ? ((summary.totalPassed / summary.totalTests) * 100).toFixed(1)
+        : '0';
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            padding: 20px;
+            color: var(--vscode-foreground);
+            background-color: var(--vscode-editor-background);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        .passed { color: var(--vscode-testing-iconPassed); }
+        .failed { color: var(--vscode-testing-iconFailed); }
+        .skipped { color: var(--vscode-testing-iconSkipped); }
+        .section {
+            margin-bottom: 30px;
+        }
+        h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            padding-bottom: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        th {
+            opacity: 0.7;
+            font-weight: normal;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--vscode-progressBar-background);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--vscode-testing-iconPassed);
+            border-radius: 4px;
+        }
+        .failure-bar {
+            background: var(--vscode-testing-iconFailed);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Test History</h1>
+        <span>${summary.totalSessions} sessions analyzed</span>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">${summary.totalTests}</div>
+            <div class="stat-label">Total Tests Run</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value passed">${summary.totalPassed}</div>
+            <div class="stat-label">Passed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value failed">${summary.totalFailed}</div>
+            <div class="stat-label">Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value skipped">${summary.totalSkipped}</div>
+            <div class="stat-label">Skipped</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${passRate}%</div>
+            <div class="stat-label">Pass Rate</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${formatDuration(summary.avgTestDuration)}</div>
+            <div class="stat-label">Avg Test Duration</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🐌 Slowest Tests</h2>
+        <table>
+            <tr>
+                <th>Test</th>
+                <th>Avg Duration</th>
+            </tr>
+            ${slowestTests.map(test => `
+                <tr>
+                    <td><code>${test.dottedPath}</code></td>
+                    <td>${formatDuration(test.duration)}</td>
+                </tr>
+            `).join('')}
+            ${slowestTests.length === 0 ? '<tr><td colspan="2">No data yet</td></tr>' : ''}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>❌ Most Failing Tests</h2>
+        <table>
+            <tr>
+                <th>Test</th>
+                <th>Failure Rate</th>
+                <th>Total Runs</th>
+            </tr>
+            ${mostFailing.map(test => `
+                <tr>
+                    <td><code>${test.dottedPath}</code></td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill failure-bar" style="width: ${(test.failureRate * 100).toFixed(0)}%"></div>
+                        </div>
+                        ${(test.failureRate * 100).toFixed(1)}%
+                    </td>
+                    <td>${test.totalRuns}</td>
+                </tr>
+            `).join('')}
+            ${mostFailing.length === 0 ? '<tr><td colspan="3">No failures recorded</td></tr>' : ''}
+        </table>
+    </div>
+</body>
+</html>
+    `;
+}
+
 export function deactivate() { }
+

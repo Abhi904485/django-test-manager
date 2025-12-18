@@ -2,7 +2,7 @@
   "name": "django-test-manager",
   "displayName": "Django Test Manager",
   "description": "Efficiently manage and run Django tests in VS Code",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "viseshagarwal",
   "author": {
     "name": "Visesh Agarwal"
@@ -130,6 +130,30 @@
         "title": "Cancel Tests",
         "icon": "$(stop-circle)",
         "tooltip": "Stop running tests"
+      },
+      {
+        "command": "django-test-manager.runTestAtCursor",
+        "title": "Run Test at Cursor",
+        "icon": "$(play)",
+        "tooltip": "Run the test method or class at the current cursor position"
+      },
+      {
+        "command": "django-test-manager.debugTestAtCursor",
+        "title": "Debug Test at Cursor",
+        "icon": "$(debug-alt)",
+        "tooltip": "Debug the test method or class at the current cursor position"
+      },
+      {
+        "command": "django-test-manager.toggleWatchMode",
+        "title": "Toggle Watch Mode",
+        "icon": "$(eye)",
+        "tooltip": "Toggle automatic test running on file changes"
+      },
+      {
+        "command": "django-test-manager.viewTestHistory",
+        "title": "View Test History",
+        "icon": "$(history)",
+        "tooltip": "View history of test runs"
       }
     ],
     "viewsContainers": {
@@ -290,9 +314,118 @@
           "type": "string",
           "default": "test_",
           "description": "Prefix for test methods (e.g. 'test_'). Used to identify test methods in files."
+        },
+        "djangoTestManager.testBaseClasses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional test base class names to recognize (e.g. 'MyCustomTestCase'). The extension automatically recognizes Django TestCase, DRF APITestCase, and classes starting with 'Test'."
+        },
+        "djangoTestManager.enableCoverage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable code coverage. Requires 'coverage' installed in your environment."
+        },
+        "djangoTestManager.coverageCommand": {
+          "type": "string",
+          "default": "coverage",
+          "description": "Command to run coverage (e.g. 'coverage' or 'python -m coverage')."
+        },
+        "djangoTestManager.watchMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable watch mode to automatically run tests when files change."
+        },
+        "djangoTestManager.watchDebounceMs": {
+          "type": "number",
+          "default": 1000,
+          "description": "Debounce time in milliseconds for watch mode (how long to wait after file changes before running tests)."
+        },
+        "djangoTestManager.watchPattern": {
+          "type": "string",
+          "default": "**/*.py",
+          "description": "Glob pattern for files to watch in watch mode."
+        },
+        "djangoTestManager.watchRunAffectedOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "In watch mode, only run tests related to changed files instead of all tests."
+        },
+        "djangoTestManager.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show desktop notifications when tests complete."
+        },
+        "djangoTestManager.useNativeTestExplorer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable VS Code's native Test Explorer integration. This allows you to use VS Code's built-in test runner UI in addition to the Django Test Explorer sidebar."
+        },
+        "djangoTestManager.historyMaxSessions": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum number of test sessions to keep in history."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "django-test-manager.runTestAtCursor",
+        "key": "ctrl+alt+t",
+        "mac": "ctrl+cmd+t",
+        "when": "editorTextFocus && editorLangId == python"
+      },
+      {
+        "command": "django-test-manager.debugTestAtCursor",
+        "key": "ctrl+alt+d",
+        "mac": "ctrl+cmd+d",
+        "when": "editorTextFocus && editorLangId == python"
+      },
+      {
+        "command": "django-test-manager.runCurrentFile",
+        "key": "ctrl+alt+f",
+        "mac": "ctrl+cmd+f",
+        "when": "editorTextFocus && editorLangId == python"
+      },
+      {
+        "command": "django-test-manager.runAllTests",
+        "key": "ctrl+alt+a",
+        "mac": "ctrl+cmd+a"
+      },
+      {
+        "command": "django-test-manager.runFailedTests",
+        "key": "ctrl+alt+e",
+        "mac": "ctrl+cmd+e"
+      },
+      {
+        "command": "django-test-manager.toggleWatchMode",
+        "key": "ctrl+alt+w",
+        "mac": "ctrl+cmd+w"
+      },
+      {
+        "command": "django-test-manager.viewTestHistory",
+        "key": "ctrl+alt+h",
+        "mac": "ctrl+cmd+h"
+      },
+      {
+        "command": "django-test-manager.searchTests",
+        "key": "ctrl+alt+s",
+        "mac": "ctrl+cmd+s"
+      },
+      {
+        "command": "django-test-manager.refreshTests",
+        "key": "ctrl+alt+r",
+        "mac": "ctrl+cmd+r"
+      },
+      {
+        "command": "django-test-manager.cancelTests",
+        "key": "ctrl+alt+c",
+        "mac": "ctrl+cmd+c",
+        "when": "djangoTestManager.isRunning"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

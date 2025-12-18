@@ -124,17 +124,31 @@ export class TestItem extends vscode.TreeItem {
 	}
 
 	private formatStatus(status: string, node: TestNode): string {
-		let text =
-			status === "unknown"
-				? node.type
-				: status.charAt(0).toUpperCase() + status.slice(1);
+		let text: string;
+		switch (status) {
+			case "running":
+				text = "Running...";
+				break;
+			case "aborted":
+				text = "Aborted";
+				break;
+			case "unknown":
+				text = node.type;
+				break;
+			default:
+				text = status.charAt(0).toUpperCase() + status.slice(1);
+		}
 
 		if (node.dottedPath) {
 			const duration = TestStateManager.getInstance().getDuration(
 				node.dottedPath
 			);
-			if (duration !== undefined) {
-				text += ` (${duration}ms)`;
+			if (duration !== undefined && status !== "running") {
+				if (duration >= 1000) {
+					text += ` (${(duration / 1000).toFixed(2)}s)`;
+				} else {
+					text += ` (${Math.round(duration)}ms)`;
+				}
 			}
 		}
 		return text;
@@ -152,21 +166,28 @@ export class TestItem extends vscode.TreeItem {
 
 		let hasFailed = false;
 		let hasPending = false;
+		let hasRunning = false;
 		let hasPassed = false;
 		let hasSkipped = false;
+		let hasAborted = false;
 
 		// Aggregate status from children
 		for (const child of node.children) {
 			const childStatus = this.computeStatus(child);
 			if (childStatus === "failed") hasFailed = true;
 			else if (childStatus === "pending") hasPending = true;
+			else if (childStatus === "running") hasRunning = true;
 			else if (childStatus === "passed") hasPassed = true;
 			else if (childStatus === "skipped") hasSkipped = true;
+			else if (childStatus === "aborted") hasAborted = true;
 		}
 
-		// Priority: Pending > Failed > Passed > Skipped
+		// Priority: Running > Pending > Failed > Passed > Aborted > Skipped
 
-		// If any child is pending, the node is pending (running)
+		// If any child is running, show as running (in progress)
+		if (hasRunning) return "running";
+
+		// If any child is pending, the node is pending (waiting to run)
 		if (hasPending) return "pending";
 
 		// If direct status is failed, it overrides everything else (e.g. setup failure)
@@ -177,6 +198,7 @@ export class TestItem extends vscode.TreeItem {
 		let result = "unknown";
 		if (hasFailed) result = "failed";
 		else if (hasPassed) result = "passed";
+		else if (hasAborted) result = "aborted";
 		else if (hasSkipped) result = "skipped";
 
 		// If aggregation is inconclusive but we have a direct status, use it
@@ -201,11 +223,24 @@ export class TestItem extends vscode.TreeItem {
 				);
 			case "skipped":
 				return new vscode.ThemeIcon(
-					"question",
+					"debug-step-over",
 					new vscode.ThemeColor("testing.iconSkipped")
 				);
 			case "pending":
-				return new vscode.ThemeIcon("sync~spin");
+				return new vscode.ThemeIcon(
+					"clock",
+					new vscode.ThemeColor("testing.iconQueued")
+				);
+			case "running":
+				return new vscode.ThemeIcon(
+					"sync~spin",
+					new vscode.ThemeColor("testing.iconQueued")
+				);
+			case "aborted":
+				return new vscode.ThemeIcon(
+					"circle-slash",
+					new vscode.ThemeColor("testing.iconSkipped")
+				);
 			default:
 				// Structural icons when no specific status
 				switch (this.node.type) {

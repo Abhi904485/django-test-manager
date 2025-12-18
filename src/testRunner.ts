@@ -5,6 +5,8 @@ import { TestNode } from "./testDiscovery";
 import { TestTreeDataProvider } from "./testTree";
 import { TestStateManager } from "./testStateManager";
 import { DjangoTerminal } from "./djangoTerminal";
+import { CoverageProvider } from "./coverageProvider";
+import { TestHistoryManager } from "./testHistory";
 
 export class TestRunner {
     private outputChannel: vscode.OutputChannel;
@@ -17,7 +19,8 @@ export class TestRunner {
 
     constructor(
         private workspaceRoot: string,
-        private treeDataProvider: TestTreeDataProvider
+        private treeDataProvider: TestTreeDataProvider,
+        private coverageProvider?: CoverageProvider
     ) {
         this.outputChannel =
             vscode.window.createOutputChannel("Django Test Runner");
@@ -116,7 +119,7 @@ export class TestRunner {
 
     private setNodeStatus(
         node: TestNode,
-        status: "pending" | "passed" | "failed" | "skipped" | "unknown",
+        status: "pending" | "running" | "passed" | "failed" | "skipped" | "aborted" | "unknown",
         recursive: boolean = true
     ) {
         this.updateStatusRecursive(node, status, recursive);
@@ -125,7 +128,7 @@ export class TestRunner {
 
     private updateStatusRecursive(
         node: TestNode,
-        status: "pending" | "passed" | "failed" | "skipped" | "unknown",
+        status: "pending" | "running" | "passed" | "failed" | "skipped" | "aborted" | "unknown",
         recursive: boolean
     ) {
         if (node.dottedPath) {
@@ -158,6 +161,8 @@ export class TestRunner {
 
     private parsingBuffer: string = "";
     private parsingTestPath: string | null = null;
+    private parsingFailureForPath: string | null = null;
+    private failureBlock: string[] = [];
     private testStartTimes: Map<string, number> = new Map();
 
     async runInTerminal(node: TestNode): Promise<void> {
@@ -257,6 +262,18 @@ export class TestRunner {
             }
         }
 
+        const enableCoverage = config.get<boolean>("enableCoverage") || false;
+        const coverageCommand = config.get<string>("coverageCommand") || "coverage";
+
+        let finalPythonPath = pythonPath;
+        if (enableCoverage) {
+            if (coverageCommand === 'coverage' && pythonPath.includes('bin/python')) {
+                finalPythonPath = `${pythonPath} -m coverage run --source=.`;
+            } else {
+                finalPythonPath = `${coverageCommand} run --source=.`;
+            }
+        }
+
         const activeProfile = config.get<string>("activeProfile") || "Default";
         const profiles =
             config.get<{ [key: string]: string[] }>("testProfiles") || {};
@@ -294,16 +311,14 @@ export class TestRunner {
 
         tokens.forEach(token => {
             if (token === '${pythonPath}') {
-                finalArgs.push(pythonPath);
+                if (enableCoverage) {
+                    finalArgs.push(...finalPythonPath.split(' '));
+                } else {
+                    finalArgs.push(pythonPath);
+                }
             } else if (token === '${managePyPath}') {
                 finalArgs.push(managePyPath);
             } else if (token === '${testPath}') {
-                // If testPaths contains spaces (multiple tests), we might need to split it if it came from a join...
-                // But generally testPaths is "path1 path2", so let's stick to simple split for now or pass as single arg if it is one path.
-                // However, testPaths variable here is a space-joined string from failed tests or a single path.
-                // Security-wise: this is data from *our* extension (dotted paths), not user input.
-                // But better to treat it as a list properly.
-                // For now, let's assume it space separated.
                 if (testPaths.trim().length > 0) {
                     finalArgs.push(...testPaths.split(' '));
                 }
@@ -340,12 +355,13 @@ export class TestRunner {
 
             vscode.window.showInformationMessage("Cancelling tests...");
 
-            // Reset any pending tests to 'skipped' so they show as not run
+            // Mark any pending or running tests as 'aborted' so they show as cancelled
             const stateManager = TestStateManager.getInstance();
             const allKeys = stateManager.getAllKeys();
             allKeys.forEach((key) => {
-                if (stateManager.getStatus(key) === "pending") {
-                    stateManager.setStatus(key, "skipped");
+                const status = stateManager.getStatus(key);
+                if (status === "pending" || status === "running") {
+                    stateManager.setStatus(key, "aborted");
                 }
             });
             this.treeDataProvider.refresh();
@@ -384,6 +400,10 @@ export class TestRunner {
         this.parsingBuffer = "";
         this.parsingTestPath = null;
 
+        // Start a new test history session
+        const historyManager = TestHistoryManager.getInstance();
+        historyManager.startSession();
+
         // Start parsing loop
         if (this.parsingInterval) {
             clearInterval(this.parsingInterval);
@@ -411,6 +431,18 @@ export class TestRunner {
                 this.processParsingBuffer(nodeToWatch); // Keep original logic for processing remaining buffer
                 this.finalizeNodeStatus(nodeToWatch, code === 0);
                 this.printTestDurationReport();
+
+                // End the test history session
+                const historyManager = TestHistoryManager.getInstance();
+                historyManager.endSession();
+
+                // Handle Coverage
+                const config = vscode.workspace.getConfiguration("djangoTestManager");
+                const enableCoverage = config.get<boolean>("enableCoverage") || false;
+                if (enableCoverage && this.coverageProvider) {
+                    this.generateCoverageReport();
+                }
+
                 this.treeDataProvider.refresh();
                 vscode.commands.executeCommand(
                     "setContext",
@@ -508,69 +540,104 @@ export class TestRunner {
         }
     }
 
+    // Pre-compiled regex patterns for parsing
+    private static readonly ANSI_CODE_REGEX = /\u001b\[\d+m/g;
+    private static readonly TEST_START_REGEX = /(\w+)\s+\(([\w\.]+)\)/;
+    private static readonly RESULT_REGEX = /\.\.\.\s+(ok|skipped|FAIL|ERROR)(?:\s+\(([\d.]+)s\))?/;
+    private static readonly SUMMARY_REGEX = /(FAIL|ERROR):\s+(\w+)\s+\((.+)\)/;
+    private static readonly SEPARATOR_LINE = '----------------------------------------------------------------------';
+
     private parseResults(node: TestNode, output: string) {
         // Strip ANSI codes
-        const cleanOutput = output.replace(/\u001b\[\d+m/g, "");
+        const cleanOutput = output.replace(TestRunner.ANSI_CODE_REGEX, "");
         const lines = cleanOutput.split("\n");
         let shouldRefresh = false;
 
-        lines.forEach((line) => {
+        // Cache state manager instance for this batch
+        const stateManager = TestStateManager.getInstance();
+        const lineCount = lines.length;
+
+        for (let i = 0; i < lineCount; i++) {
+            const line = lines[i];
+
+            // Skip empty lines quickly
+            if (line.length === 0) continue;
+
             // Check for start of a test: test_method (path.to.test)
-            // Relaxed regex: remove ^ anchor to handle potential prefix text
-            const testStartMatch = line.match(/(\w+)\s+\(([\w\.]+)\)/);
+            const testStartMatch = TestRunner.TEST_START_REGEX.exec(line);
             if (testStartMatch) {
                 const methodName = testStartMatch[1];
                 const pathInParens = testStartMatch[2];
 
                 // Construct full dotted path: ensure it ends with method name
-                if (
-                    pathInParens.endsWith(`.${methodName}`) ||
-                    pathInParens === methodName
-                ) {
+                if (pathInParens.endsWith(`.${methodName}`) || pathInParens === methodName) {
                     this.parsingTestPath = pathInParens;
                 } else {
                     this.parsingTestPath = `${pathInParens}.${methodName}`;
                 }
+
+                // Set status to 'running' for live feedback
+                stateManager.setStatus(this.parsingTestPath, 'running');
                 this.testStartTimes.set(this.parsingTestPath, Date.now());
+                shouldRefresh = true;
             }
 
             // Check for result on the same line or subsequent lines
-            // Matches "... ok", "... skipped", "... FAIL", "... ERROR"
-            const resultMatch = line.match(/\.\.\.\s+(ok|skipped|FAIL|ERROR)/);
-            if (resultMatch && this.parsingTestPath) {
-                const result = resultMatch[1];
-                let status: "passed" | "failed" | "skipped" = "passed";
+            if (this.parsingTestPath) {
+                const resultMatch = TestRunner.RESULT_REGEX.exec(line);
+                if (resultMatch) {
+                    const result = resultMatch[1];
+                    let status: "passed" | "failed" | "skipped" = "passed";
+                    let errorMessage: string | undefined;
 
-                if (result === "skipped") {
-                    status = "skipped";
-                    shouldRefresh = true;
-                } else if (result === "FAIL" || result === "ERROR") {
-                    status = "failed";
-                    shouldRefresh = true;
-                    // TODO: Capture actual error message from output
-                    TestStateManager.getInstance().setFailureMessage(
+                    if (result === "skipped") {
+                        status = "skipped";
+                        shouldRefresh = true;
+                    } else if (result === "FAIL" || result === "ERROR") {
+                        status = "failed";
+                        shouldRefresh = true;
+                        errorMessage = "Test Failed. Check terminal for details.";
+                        stateManager.setFailureMessage(
+                            this.parsingTestPath,
+                            errorMessage
+                        );
+                    }
+
+                    let duration = 0;
+                    if (resultMatch[2]) {
+                        // Use reported duration from Django runner
+                        const durationSec = parseFloat(resultMatch[2]);
+                        duration = durationSec * 1000;
+                        stateManager.setDuration(this.parsingTestPath, duration);
+                    } else {
+                        // Fallback to calculated duration
+                        const startTime = this.testStartTimes.get(this.parsingTestPath);
+                        if (startTime) {
+                            duration = Date.now() - startTime;
+                            stateManager.setDuration(this.parsingTestPath, duration);
+                        }
+                    }
+
+                    stateManager.setStatus(this.parsingTestPath, status);
+
+                    // Record to test history
+                    const historyManager = TestHistoryManager.getInstance();
+                    const testName = this.parsingTestPath.split('.').pop() || this.parsingTestPath;
+                    historyManager.recordTest(
                         this.parsingTestPath,
-                        "Test Failed. Check terminal for details."
+                        testName,
+                        status === "failed" ? "failed" : status,
+                        duration,
+                        errorMessage
                     );
-                }
 
-                const startTime = this.testStartTimes.get(this.parsingTestPath);
-                if (startTime) {
-                    const duration = Date.now() - startTime;
-                    TestStateManager.getInstance().setDuration(
-                        this.parsingTestPath,
-                        duration
-                    );
+                    this.parsingTestPath = null;
+                    continue;
                 }
-
-                TestStateManager.getInstance().setStatus(this.parsingTestPath, status);
-                this.parsingTestPath = null; // Reset
-                return;
             }
 
             // Failure Summary Block (Catch-all for detailed failures at the end)
-            // ERROR: test_method (path.to.test)
-            const summaryMatch = line.match(/(FAIL|ERROR):\s+(\w+)\s+\((.+)\)/);
+            const summaryMatch = TestRunner.SUMMARY_REGEX.exec(line);
             if (summaryMatch) {
                 const methodName = summaryMatch[2];
                 const pathInParens = summaryMatch[3];
@@ -580,26 +647,34 @@ export class TestRunner {
                     fullPath = `${pathInParens}.${methodName}`;
                 }
 
-                TestStateManager.getInstance().setStatus(fullPath, "failed");
+                stateManager.setStatus(fullPath, "failed");
+                this.parsingFailureForPath = fullPath;
+                this.failureBlock = [];
                 shouldRefresh = true;
-                return;
+                continue;
             }
-        });
+
+            if (this.parsingFailureForPath) {
+                if (line.startsWith(TestRunner.SEPARATOR_LINE)) {
+                    this.processFailureBlock(this.parsingFailureForPath, this.failureBlock);
+                    this.parsingFailureForPath = null;
+                    this.failureBlock = [];
+                } else {
+                    this.failureBlock.push(line);
+                }
+            }
+        }
 
         // Update the root node status based on summary ONLY if it's a leaf node.
-        // If it's a folder, let the children determine the status.
         if (!node.children || node.children.length === 0) {
-            if (
-                cleanOutput.includes("FAILED (failures=") ||
-                cleanOutput.includes("FAILED (errors=")
-            ) {
+            if (cleanOutput.includes("FAILED (failures=") || cleanOutput.includes("FAILED (errors=")) {
                 if (node.dottedPath) {
-                    TestStateManager.getInstance().setStatus(node.dottedPath, "failed");
+                    stateManager.setStatus(node.dottedPath, "failed");
                     shouldRefresh = true;
                 }
             } else if (cleanOutput.includes("OK")) {
                 if (node.dottedPath) {
-                    TestStateManager.getInstance().setStatus(node.dottedPath, "passed");
+                    stateManager.setStatus(node.dottedPath, "passed");
                 }
             }
         }
@@ -607,5 +682,78 @@ export class TestRunner {
         if (shouldRefresh) {
             this.triggerRefresh();
         }
+    }
+
+    private processFailureBlock(testPath: string, lines: string[]) {
+        // Simple heuristic to extract diff
+        // Look for lines starting with - and +
+        let expected = "";
+        let actual = "";
+        let hasDiff = false;
+
+        lines.forEach(line => {
+            if (line.startsWith("- ")) {
+                expected += line.substring(2) + "\n";
+                hasDiff = true;
+            } else if (line.startsWith("+ ")) {
+                actual += line.substring(2) + "\n";
+                hasDiff = true;
+            }
+        });
+
+        if (hasDiff) {
+            TestStateManager.getInstance().setDiff(testPath, expected, actual);
+        }
+    }
+
+    private generateCoverageReport() {
+        if (!this.coverageProvider) return;
+
+        // Run coverage xml
+        // We need to run this command in the same environment/cwd
+        const config = vscode.workspace.getConfiguration("djangoTestManager");
+        const coverageCommand = config.get<string>("coverageCommand") || "coverage";
+        // Need to construct command properly. python -m coverage xml OR coverage xml
+
+        let cmd = coverageCommand;
+        let args = ["xml"];
+
+        // If we used pythonPath -m coverage, we should do the same here
+        let pythonPath = config.get<string>("pythonPath") || "python3";
+        // ... (reuse venv detection logic? or just simple check)
+        // For simplicity, let's try to reuse the 'coverage' command logic.
+
+        // Actually, cleaner way:
+        // We just run `coverage xml` using the same shell/env.
+        // But if coverage is not in PATH (only in venv), we should use pythonPath -m coverage xml.
+
+        const venvPath = path.join(this.workspaceRoot, ".venv", "bin", "python");
+        const venvPath2 = path.join(this.workspaceRoot, "venv", "bin", "python");
+        const fs = require("fs");
+        if (fs.existsSync(venvPath)) pythonPath = venvPath;
+        else if (fs.existsSync(venvPath2)) pythonPath = venvPath2;
+
+        if (coverageCommand === 'coverage' && pythonPath.includes('bin/python')) {
+            cmd = pythonPath;
+            args = ["-m", "coverage", "xml"];
+        }
+
+        // We run this using child_process.exec or spawn, but we don't need output stream parsing.
+        // Just run and wait.
+        const configEnv = config.get<{ [key: string]: string }>("environmentVariables") || {};
+        const env = { ...process.env, ...configEnv };
+
+        this.outputChannel.appendLine(`Generating coverage report: ${cmd} ${args.join(' ')}`);
+
+        const child = cp.spawn(cmd, args, { cwd: this.workspaceRoot, env: env });
+
+        child.on('close', (code) => {
+            if (code === 0) {
+                this.outputChannel.appendLine(`Coverage report generated.`);
+                this.coverageProvider?.loadCoverage();
+            } else {
+                this.outputChannel.appendLine(`Failed to generate coverage report. Exit code: ${code}`);
+            }
+        });
     }
 }
