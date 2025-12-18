@@ -34,6 +34,8 @@ export class TestStatusBar {
         let failed = 0;
         let skipped = 0;
         let pending = 0;
+        let running = 0;
+        let aborted = 0;
 
         allKeys.forEach(key => {
             const status = stateManager.getStatus(key);
@@ -41,28 +43,41 @@ export class TestStatusBar {
             else if (status === 'failed') failed++;
             else if (status === 'skipped') skipped++;
             else if (status === 'pending') pending++;
+            else if (status === 'running') running++;
+            else if (status === 'aborted') aborted++;
         });
 
-        if (passed === 0 && failed === 0 && skipped === 0 && pending === 0) {
+        const total = allKeys.length;
+
+        if (passed === 0 && failed === 0 && skipped === 0 && pending === 0 && running === 0 && aborted === 0) {
             this.statusBarItem.hide();
             return;
         }
 
         const parts: string[] = [];
+
+        // Show running status with progress
+        if (running > 0 || pending > 0) {
+            const completed = passed + failed + skipped + aborted;
+            parts.push(`$(sync~spin) ${completed}/${total}`);
+            this.statusBarItem.backgroundColor = undefined;
+        }
+
+        // Show failure count prominently
         if (failed > 0) {
             parts.push(`$(error) ${failed}`);
-            this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-        } else if (pending > 0) {
-            this.statusBarItem.backgroundColor = undefined;
-            parts.push(`$(sync~spin) Running...`);
+            if (running === 0 && pending === 0) {
+                this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+            }
         } else {
             this.statusBarItem.backgroundColor = undefined;
         }
 
         if (passed > 0) parts.push(`$(check) ${passed}`);
-        if (skipped > 0) parts.push(`$(dash) ${skipped}`);
+        if (skipped > 0) parts.push(`$(debug-step-over) ${skipped}`);
+        if (aborted > 0) parts.push(`$(circle-slash) ${aborted}`);
 
-        this.statusBarItem.text = `Django Tests: ${parts.join(' ')}`;
+        this.statusBarItem.text = `Django Tests: ${parts.join(' │ ')}`;
         this.statusBarItem.show();
     }
 
