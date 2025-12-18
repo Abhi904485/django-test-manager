@@ -97,43 +97,8 @@ export function activate(context: vscode.ExtensionContext) {
                 django: true,
                 cwd: workspaceRoot
             };
-
-            // Update launch.json
-            const launchConfig = vscode.workspace.getConfiguration('launch');
-            const configurations = launchConfig.get<any[]>('configurations') || [];
-
-            const index = configurations.findIndex(c => c.name === debugConfigName);
-            if (index !== -1) {
-                configurations[index] = debugConfig;
-            } else {
-                configurations.push(debugConfig);
-            }
-
-            await launchConfig.update('configurations', configurations, vscode.ConfigurationTarget.Workspace);
-
-            // Start debugging using the named configuration
-            await vscode.debug.startDebugging(vscode.workspace.workspaceFolders?.[0], debugConfigName);
-        }),
-        vscode.debug.onDidTerminateDebugSession(async (session) => {
-            if (session.name === 'Django Test Manager: Debug') {
-                const launchConfig = vscode.workspace.getConfiguration('launch');
-                const configurations = launchConfig.get<any[]>('configurations') || [];
-                const newConfigs = configurations.filter(c => c.name !== 'Django Test Manager: Debug');
-
-                if (newConfigs.length !== configurations.length) {
-                    await launchConfig.update('configurations', newConfigs, vscode.ConfigurationTarget.Workspace);
-                }
-
-                if (newConfigs.length === 0) {
-                    const vscodeDir = path.join(workspaceRoot, '.vscode');
-                    const launchJsonPath = path.join(vscodeDir, 'launch.json');
-                    try {
-                        await vscode.workspace.fs.delete(vscode.Uri.file(launchJsonPath));
-                    } catch (error) {
-                        // Ignore error if file doesn't exist
-                    }
-                }
-            }
+            // Start debugging using the configuration directly (more reliable than named config)
+            await vscode.debug.startDebugging(vscode.workspace.workspaceFolders?.[0], debugConfig);
         }),
         vscode.commands.registerCommand('django-test-manager.copyPath', (item: TestItem | TestNode) => {
             const node = item instanceof TestItem ? item.node : item;
