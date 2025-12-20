@@ -27,8 +27,8 @@ export default tseslint.config(
 					varsIgnorePattern: "^_",
 				},
 			],
-			// Allow explicit any in some cases
-			"@typescript-eslint/no-explicit-any": "warn",
+			// Allow explicit any (common in VS Code extensions for dynamic data)
+			"@typescript-eslint/no-explicit-any": "off",
 			// Allow require statements (for dynamic requires)
 			"@typescript-eslint/no-require-imports": "off",
 			// Allow empty functions (common in VS Code extensions)
