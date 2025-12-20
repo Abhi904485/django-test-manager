@@ -40,6 +40,9 @@ export class TestRunner {
             return;
         }
 
+        // Clear previous test state to ensure accurate counts for this run
+        TestStateManager.getInstance().clear();
+
         // Reset status
         this.setNodeStatus(node, "pending");
         this.outputChannel.clear();
@@ -166,6 +169,9 @@ export class TestRunner {
             vscode.window.showErrorMessage("Could not determine test path");
             return;
         }
+
+        // Clear previous test state to ensure accurate counts for this run
+        TestStateManager.getInstance().clear();
 
         // Reset parsing state
         this.parsingBuffer = "";
