@@ -5,6 +5,27 @@ All notable changes to Django Test Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-12-20
+
+### Fixed
+
+- **Status bar now shows accurate test counts** - Test state is now cleared before each run, preventing accumulation of results from previous runs
+
+### Added
+
+- **GitHub Actions CI/CD Workflows**
+  - CI workflow: Lint, compile, and package on every push/PR
+  - ESLint security scanning with SARIF upload to GitHub
+  - Release workflow: Auto-publish to VS Code Marketplace and Open VSX on PR merge
+- **ESLint configuration** - Added `eslint.config.mjs` for TypeScript linting
+- **Test infrastructure** - Added Mocha test framework setup for extension testing
+
+### Improved
+
+- **npm scripts** - Added `lint`, `lint:fix`, `pretest`, and `test` scripts
+
+---
+
 ## [0.3.2] - 2025-12-20
 
 ### Fixed
